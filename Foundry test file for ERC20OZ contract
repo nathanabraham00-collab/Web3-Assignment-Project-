@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.33;
+
+import "forge-std/Test.sol";
+import "../src/ERC20OZ.sol";
+import {ERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+
+contract ERC20OZTest is Test {
+    ERC20OZ token;
+    address owner = address(0x1);
+    address user1 = address(0x2);
+    address user2 = address(0x3);
+
+    function setUp() public {
+        vm.prank(owner);
+        token = new ERC20OZ("TestToken", "TTK");
+    }
+
+    /// @notice Test 1: Verify constructor sets name, symbol, owner, and initial mint
+    function test_Constructor() public {
+        assertEq(token.name(), "TestToken");
+        assertEq(token.symbol(), "TTK");
+        assertEq(token.s_name(), "TestToken");
+        assertEq(token.owner(), owner);
+        // Initial mint: 10 billion tokens to contract itself
+        assertEq(token.balanceOf(address(token)), 10_000_000_000);
+        assertEq(token.totalSupply(), 10_000_000_000);
+        assertEq(token.decimals(), 18); // Default ERC20 decimals since override is commented
+    }
+
+    /// @notice Test 2: Owner can mint tokens to any address
+    function test_OwnerCanMint() public {
+        uint256 mintAmount = 5000e18;
+        
+        vm.prank(owner);
+        token.mint(mintAmount, user1);
+        
+        assertEq(token.balanceOf(user1), mintAmount);
+        assertEq(token.totalSupply(), 10_000_000_000 + mintAmount);
+    }
+
+    /// @notice Test 3: Non-owner cannot mint - should revert
+    function test_RevertIf_NonOwnerMints() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        token.mint(1000e18, user2);
+    }
+
+    /// @notice Test 4: Owner can burn tokens from contract balance
+    function test_OwnerCanBurn() public {
+        uint256 burnAmount = 1_000_000_000;
+        uint256 initialContractBal = token.balanceOf(address(token));
+        uint256 initialSupply = token.totalSupply();
+        
+        vm.prank(owner);
+        token.burn(burnAmount);
+        
+        assertEq(token.balanceOf(address(token)), initialContractBal - burnAmount);
+        assertEq(token.totalSupply(), initialSupply - burnAmount);
+    }
+
+    /// @notice Test 5: Non-owner cannot burn - should revert  
+    function test_RevertIf_NonOwnerBurns() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        token.burn(1000e18);
+    }
+
+    /// @notice Test 6: Standard ERC20 transfers work + events emitted
+    function test_TransferAndEvents() public {
+        uint256 transferAmount = 1000e18;
+        
+        // First mint to user1 so they have tokens
+        vm.prank(owner);
+        token.mint(transferAmount, user1);
+        
+        // Expect Transfer event
+        vm.expectEmit(true, true, false, true);
+        emit ERC20.Transfer(user1, user2, transferAmount);
+        
+        vm.prank(user1);
+        bool success = token.transfer(user2, transferAmount);
+        
+        assertTrue(success);
+        assertEq(token.balanceOf(user1), 0);
+        assertEq(token.balanceOf(user2), transferAmount);
+    }
+}
